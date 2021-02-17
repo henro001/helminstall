@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# chart_name=kafka-connect
+# chart_repo=/Users/hfeher/work/git/icgc-argo/kube-infra/kafka-connect
+# chart_version=0.0.1
+# chart_values=/Users/hfeher/work/git/kubesprayz/gammaray/config/kafka1/connect/values/values.yml
+
+set -e
+set -u
+set -o pipefail
+
+
+release_metadata=$1
+helm=$2
+source $release_metadata
+current_date=$(date +%s)
+secrets=".private/secret_vars"
+
+if [[ -f $secrets ]]
+  then
+    current_vals=$(sed -f $secrets $chart_values)
+  else
+    current_vals=$(cat $chart_values)
+fi
+
+current_val_file=".private/values-${current_date}.yml"
+
+
+print_vals () {
+  echo "$current_vals" | less
+  echo "$current_vals" > $current_val_file
+}
+
+save_config_before () {
+  echo "Saving current values..."
+  $helm get values  $chart_name  > .private/values-${current_date}-01-before.yml && $helm get values  -a $chart_name  > .private/values-all-${current_date}-01-before.yml
+  echo "Saved in..."
+  echo "Supplied values: .private/values-${current_date}-01-before.yml"
+  echo "All values: .private/values-all-${current_date}-01-before.yml"
+  echo
+}
+
+dry_run () {
+  echo "Running dry run..."
+  $helm upgrade -i $chart_name $chart_repo -f $current_val_file  --version $chart_version --dry-run --debug > .private/install-${current_date}
+  less .private/install-${current_date}
+  echo
+}
+
+
+
+upgrade_chart () {
+  echo "Upgrade chart:"
+  echo "$helm upgrade -i $chart_name $chart_repo -f $current_val_file  --version $chart_version"
+  read -n 1 -r -s -p $'Press enter to continue...\n' confirm
+  if [[ $confirm != "" ]]; then
+    exit
+  fi
+  echo "Upgrading..."
+  $helm upgrade -i $chart_name $chart_repo -f $current_val_file --version $chart_version
+  echo
+}
+
+save_config_after () {
+  echo "Saving current values..."
+  $helm get values  -a $chart_name  > .private/values-all-${current_date}-02-after.yml
+  echo
+  echo "Saved in..."
+  echo "All values: .private/values-all-${current_date}-02-after.yml"
+  echo
+}
+
+compare_values () {
+  echo "Compare before and after..."
+  icdiff .private/values-all-${current_date}-01-before.yml .private/values-all-${current_date}-02-after.yml
+  echo "Done."
+}
+
+
+# while getopts 'if' OPTION; do
+#   case "$OPTION" in
+#     i)
+#       echo "Install only"
+#       # upgrade_chart
+#       ;;
+#     f)
+#       echo "Save config, dry run, install"
+#       # save_config_before
+#       # dry_run
+#       # upgrade_chart
+#       # save_config_after
+#       # compare_values
+#       ;;
+#     ?)
+#       echo "script usage: $(basename $0) [-i] [-f]" >&2
+#       exit 1
+#       ;;
+#   esac
+# done
+
+print_vals
+save_config_before
+# dry_run
+upgrade_chart
+save_config_after
+compare_values
+
